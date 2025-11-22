@@ -1,0 +1,5 @@
+{
+  "name": "JiraClone Pro",
+  "description": "A production-quality, frontend-only Jira clone with Kanban boards, sprints, and issue tracking using LocalStorage persistence.",
+  "requestFramePermissions": []
+}

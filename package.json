@@ -1,0 +1,48 @@
+{
+  "name": "jira-clone-pro",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@reduxjs/toolkit": "^2.0.0",
+    "clsx": "^2.1.0",
+    "date-fns": "^3.0.0",
+    "lucide-react": "^0.300.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-redux": "^9.0.0",
+    "react-router-dom": "^6.21.0",
+    "recharts": "^2.10.0",
+    "tailwind-merge": "^2.2.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "npm run test:unit",
+    "test:unit": "vitest"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.6",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "vite": "^7.2.4"
+  }
+}
