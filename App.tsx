@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState, useRef } from 'react';
-import { HashRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, useNavigate, BrowserRouter } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState, login, logout, toggleTheme, markNotificationAsRead, markAllNotificationsAsRead, clearNotifications } from './src/store';
 import { AppState, Notification } from './src/types';
@@ -469,7 +469,7 @@ const App = () => {
   const isAuthenticated = useSelector((state: RootState) => (state.app as AppState).isAuthenticated);
 
   return (
-    <HashRouter>
+    <BrowserRouter>
       <Routes>
         <Route path="/login" element={isAuthenticated ? <Navigate to="/" /> : <AuthPage />} />
         <Route path="/*" element={
@@ -499,7 +499,7 @@ const App = () => {
           ) : <Navigate to="/login" />
         } />
       </Routes>
-    </HashRouter>
+    </BrowserRouter>
   );
 };
 
