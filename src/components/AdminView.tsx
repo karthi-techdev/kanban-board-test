@@ -292,7 +292,7 @@ export const AdminView = () => {
                                 <div>
                                     <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Logo URL</label>
                                     <div className="flex gap-4">
-                                        <img src={logoUrl} className="w-12 h-12 rounded-lg object-cover border border-slate-200 dark:border-slate-700 bg-white" alt="Logo Preview" />
+                                        <img src={logoUrl} className="w-12 h-12 rounded-lg object-contain border border-slate-200 dark:border-slate-700 bg-white" alt="Logo Preview" />
                                         <input 
                                             className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white"
                                             value={logoUrl}
