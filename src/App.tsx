@@ -258,7 +258,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           <div className={`flex items-center ${collapsed ? 'justify-center w-full' : ''}`}>
             <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shadow-lg shadow-indigo-500/30 flex-shrink-0" style={{ backgroundColor: orgSettings?.primaryColor }}>
               {orgSettings?.logoUrl ? (
-                  <img src={orgSettings.logoUrl} className="w-full h-full object-contain rounded-lg" alt="Logo" />
+                  <img src={orgSettings.logoUrl} className="w-full h-full object-contain rounded-sm" alt="Logo" />
               ) : (
                   <Layout className="text-white" size={18} />
               )}
