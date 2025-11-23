@@ -1,5 +1,5 @@
 {
-  "name": "JiraClone Pro",
-  "description": "A production-quality, frontend-only Jira clone with Kanban boards, sprints, and issue tracking using LocalStorage persistence.",
+  "name": "Flownyx | Project Management",
+  "description": "Flownyx is a powerful project management tool designed to help teams collaborate, track progress, and achieve their goals efficiently. With an intuitive interface and robust features, Flownyx makes project planning and execution seamless.",
   "requestFramePermissions": []
 }

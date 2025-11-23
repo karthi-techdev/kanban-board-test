@@ -2,21 +2,21 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { HashRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
-import { RootState, login, logout, toggleTheme, markNotificationAsRead, markAllNotificationsAsRead, clearNotifications } from './store';
-import { AppState, Notification } from './types';
-import { BoardView } from './components/Board';
-import { BacklogView } from './components/Backlog';
-import { RoadmapView } from './components/Roadmap';
-import { CodeView } from './components/Code';
-import { TimeTrackingView } from './components/TimeTracking';
-import { TeamView, SettingsView, ProfileView } from './components/Views';
-import { IssuesView, ReleasesView, ReportsView, AutomationView } from './components/ExtendedViews';
-import { IntegrationView } from './components/IntegrationView';
-import { MarketplaceView } from './components/Marketplace';
-import { AdminView } from './components/AdminView';
-import { HelpCenterView } from './components/HelpCenter';
-import { Layout, Users, CheckSquare, Settings, Bell, Search, Moon, Sun, Calendar, ChevronLeft, ChevronRight, List, Rocket, Zap, BarChart, GitBranch, Clock, Shield, Globe, HelpCircle, X, LogOut, Mail, Lock, User, Plug } from './components/Icons';
-import { formatTimeAgo } from './utils';
+import { RootState, login, logout, toggleTheme, markNotificationAsRead, markAllNotificationsAsRead, clearNotifications } from './src/store';
+import { AppState, Notification } from './src/types';
+import { BoardView } from './src/components/Board';
+import { BacklogView } from './src/components/Backlog';
+import { RoadmapView } from './src/components/Roadmap';
+import { CodeView } from './src/components/Code';
+import { TimeTrackingView } from './src/components/TimeTracking';
+import { TeamView, SettingsView, ProfileView } from './src/components/Views';
+import { IssuesView, ReleasesView, ReportsView, AutomationView } from './src/components/ExtendedViews';
+import { IntegrationView } from './src/components/IntegrationView';
+import { MarketplaceView } from './src/components/Marketplace';
+import { AdminView } from './src/components/AdminView';
+import { HelpCenterView } from './src/components/HelpCenter';
+import { Layout, Users, CheckSquare, Settings, Bell, Search, Moon, Sun, Calendar, ChevronLeft, ChevronRight, List, Rocket, Zap, BarChart, GitBranch, Clock, Shield, Globe, HelpCircle, X, LogOut, Mail, Lock, User, Plug } from './src/components/Icons';
+import { formatTimeAgo } from './src/utils';
 
 // --- Layout Components ---
 

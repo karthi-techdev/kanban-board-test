@@ -6,12 +6,8 @@
     <meta name="theme-color" content="#4f46e5" />
     <meta name="description" content="Kanban Board Demo - Project Management" />
     <title>Kanban Board Demo</title>
-    
-    <!-- Satoshi Font (Fontshare CDN) -->
-    <link href="https://api.fontshare.com/v2/css?f[]=satoshi@300,400,500,700,900&display=swap" rel="stylesheet">
-    
-    <!-- Tailwind CSS (CDN for demo purposes, ideally use postcss in prod) -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="/assets/font/font.css" rel="stylesheet">
+    <script src="/assets/plugin/tailwind.js"></script>
     <script>
       tailwind.config = {
         darkMode: 'class',
@@ -39,7 +35,6 @@
         font-family: 'Satoshi', sans-serif;
         -webkit-font-smoothing: antialiased;
       }
-      /* Custom Scrollbar */
       ::-webkit-scrollbar {
         width: 8px;
         height: 8px;
@@ -58,7 +53,6 @@
         background: #475569;
       }
 
-      /* View Transitions API Customization for Dark Mode Wave */
       ::view-transition-old(root),
       ::view-transition-new(root) {
         animation: none;

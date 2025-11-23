@@ -1,6 +1,6 @@
 
 import { configureStore, createSlice, PayloadAction } from '@reduxjs/toolkit';
-import { AppState, Issue, User, Priority, IssueType, Sprint, Project, Release, AutomationRule, TimeLog, Notification, Repository, Branch, PullRequest } from './types';
+import { AppState, Issue, User, Priority, IssueType, Sprint, Project, Release, AutomationRule, TimeLog, Notification, Repository, Branch, PullRequest, OrgSettings, AuditLog } from './types';
 import { getInitialState, saveState, generateId } from './utils';
 
 const initialState: AppState = getInitialState();
@@ -18,6 +18,17 @@ const appSlice = createSlice({
       state.user = null;
       state.isAuthenticated = false;
       saveState(state);
+    },
+    updateCurrentUser: (state, action: PayloadAction<Partial<User>>) => {
+        if (state.user) {
+            const updatedUser = { ...state.user, ...action.payload };
+            state.user = updatedUser;
+            // Sync with users map
+            if (state.users[updatedUser.id]) {
+                state.users[updatedUser.id] = { ...state.users[updatedUser.id], ...action.payload };
+            }
+            saveState(state);
+        }
     },
     toggleTheme: (state) => {
       state.isDarkMode = !state.isDarkMode;
@@ -39,6 +50,13 @@ const appSlice = createSlice({
             saveState(state);
         }
     },
+    deleteProject: (state, action: PayloadAction<string>) => {
+        state.projects = state.projects.filter(p => p.id !== action.payload);
+        if (state.currentProjectId === action.payload) {
+            state.currentProjectId = state.projects[0]?.id || null;
+        }
+        saveState(state);
+    },
     // Team Actions
     inviteUser: (state, action: PayloadAction<string>) => {
       const email = action.payload;
@@ -49,7 +67,9 @@ const appSlice = createSlice({
               id: newId,
               name: email.split('@')[0],
               email: email,
-              avatarUrl: `https://picsum.photos/seed/${newId}/200`
+              avatarUrl: `https://picsum.photos/seed/${newId}/200`,
+              role: 'Member',
+              inviteStatus: 'pending'
           };
           saveState(state);
       }
@@ -69,6 +89,13 @@ const appSlice = createSlice({
                 if (p.leadId === userId) p.leadId = 'u1'; // Fallback to default/admin
             });
 
+            saveState(state);
+        }
+    },
+    updateUserRole: (state, action: PayloadAction<{ userId: string; role: 'Admin' | 'Member' | 'Viewer' }>) => {
+        const user = state.users[action.payload.userId];
+        if (user) {
+            user.role = action.payload.role;
             saveState(state);
         }
     },
@@ -282,6 +309,28 @@ const appSlice = createSlice({
         };
         saveState(state);
     },
+    editRelease: (state, action: PayloadAction<{ id: string; name: string; date: string; description: string; status: 'UNRELEASED' | 'RELEASED' | 'ARCHIVED' }>) => {
+        const rel = state.releases[action.payload.id];
+        if (rel) {
+            rel.name = action.payload.name;
+            rel.releaseDate = action.payload.date;
+            rel.description = action.payload.description;
+            rel.status = action.payload.status;
+            rel.isReleased = action.payload.status === 'RELEASED';
+            saveState(state);
+        }
+    },
+    deleteRelease: (state, action: PayloadAction<string>) => {
+        const releaseId = action.payload;
+        // Unlink issues
+        Object.values(state.issues).forEach((issue: Issue) => {
+            if (issue.releaseId === releaseId) {
+                issue.releaseId = undefined;
+            }
+        });
+        delete state.releases[releaseId];
+        saveState(state);
+    },
     toggleReleaseStatus: (state, action: PayloadAction<string>) => {
         const rel = state.releases[action.payload];
         if(rel) {
@@ -291,17 +340,41 @@ const appSlice = createSlice({
         }
     },
     // Automation Actions
-    createAutomation: (state, action: PayloadAction<{ name: string; trigger: string; action: string }>) => {
+    createAutomation: (state, action: PayloadAction<{ name: string; description: string; trigger: string; condition: string; action: string }>) => {
         const newId = generateId('AUTO');
         state.automations[newId] = {
             id: newId,
             name: action.payload.name,
+            description: action.payload.description,
             trigger: action.payload.trigger,
-            condition: 'ALWAYS',
+            condition: action.payload.condition,
             action: action.payload.action,
-            isActive: true
+            isActive: true,
+            executionCount: 0
         };
         saveState(state);
+    },
+    deleteAutomation: (state, action: PayloadAction<string>) => {
+        delete state.automations[action.payload];
+        saveState(state);
+    },
+    triggerAutomation: (state, action: PayloadAction<string>) => {
+        const rule = state.automations[action.payload];
+        if (rule && rule.isActive) {
+            rule.lastRun = new Date().toISOString();
+            rule.executionCount = (rule.executionCount || 0) + 1;
+            const notifId = generateId('NOTIF');
+            if (!state.notifications) state.notifications = [];
+            state.notifications.unshift({
+                id: notifId,
+                title: 'Automation Executed',
+                message: `Rule "${rule.name}" executed successfully.`,
+                type: 'success',
+                isRead: false,
+                createdAt: new Date().toISOString()
+            });
+            saveState(state);
+        }
     },
     toggleAutomation: (state, action: PayloadAction<string>) => {
         const rule = state.automations[action.payload];
@@ -313,8 +386,6 @@ const appSlice = createSlice({
     // Time Tracking
     startTimeLog: (state, action: PayloadAction<{ issueId: string }>) => {
         if (!state.user) return;
-        
-        // Stop any active timer first
         (Object.values(state.timeLogs) as TimeLog[]).forEach(log => {
              if (!log.endTime && log.userId === state.user?.id) {
                  log.endTime = new Date().toISOString();
@@ -323,7 +394,6 @@ const appSlice = createSlice({
                  if (issue) issue.timeSpent = (issue.timeSpent || 0) + log.durationSeconds;
              }
         });
-
         const newId = generateId('LOG');
         state.timeLogs[newId] = {
             id: newId,
@@ -340,8 +410,6 @@ const appSlice = createSlice({
             log.endTime = new Date().toISOString();
             const duration = (new Date(log.endTime).getTime() - new Date(log.startTime).getTime()) / 1000;
             log.durationSeconds = Math.floor(duration);
-            
-            // Update issue total
             const issue = state.issues[log.issueId];
             if(issue) {
                 issue.timeSpent = (issue.timeSpent || 0) + log.durationSeconds;
@@ -357,10 +425,9 @@ const appSlice = createSlice({
             issueId: action.payload.issueId,
             userId: state.user.id,
             startTime: new Date(action.payload.date).toISOString(),
-            endTime: new Date(action.payload.date).toISOString(), // Instant
+            endTime: new Date(action.payload.date).toISOString(),
             durationSeconds: action.payload.seconds
         };
-        
         const issue = state.issues[action.payload.issueId];
         if (issue) {
             issue.timeSpent = (issue.timeSpent || 0) + action.payload.seconds;
@@ -375,11 +442,28 @@ const appSlice = createSlice({
              if (issue) {
                  const durationToRemove = log.durationSeconds || 0;
                  const currentSpent = issue.timeSpent || 0;
-                 // Strict safe subtraction preventing NaN or negative values
                  issue.timeSpent = Math.max(0, currentSpent - durationToRemove);
              }
              delete state.timeLogs[logId];
              saveState(state);
+        }
+    },
+    editTimeLog: (state, action: PayloadAction<{ logId: string; seconds: number; date: string }>) => {
+        const log = state.timeLogs[action.payload.logId];
+        if (log) {
+            const oldDuration = log.durationSeconds || 0;
+            const newDuration = action.payload.seconds;
+            const diff = newDuration - oldDuration;
+
+            log.durationSeconds = newDuration;
+            log.startTime = new Date(action.payload.date).toISOString();
+            log.endTime = new Date(action.payload.date).toISOString(); 
+
+            const issue = state.issues[log.issueId];
+            if (issue) {
+                issue.timeSpent = Math.max(0, (issue.timeSpent || 0) + diff);
+            }
+            saveState(state);
         }
     },
     // Code Module Actions
@@ -392,6 +476,20 @@ const appSlice = createSlice({
             ...action.payload,
             lastUpdated: new Date().toISOString()
         };
+        saveState(state);
+    },
+    deleteRepository: (state, action: PayloadAction<string>) => {
+        const repoId = action.payload;
+        delete state.repositories[repoId];
+        Object.keys(state.branches).forEach(id => {
+            if (state.branches[id].repositoryId === repoId) delete state.branches[id];
+        });
+        Object.keys(state.commits).forEach(id => {
+            if (state.commits[id].repositoryId === repoId) delete state.commits[id];
+        });
+        Object.keys(state.pullRequests).forEach(id => {
+            if (state.pullRequests[id].repositoryId === repoId) delete state.pullRequests[id];
+        });
         saveState(state);
     },
     createBranch: (state, action: PayloadAction<{ repoId: string; name: string; source: string }>) => {
@@ -434,6 +532,87 @@ const appSlice = createSlice({
             saveState(state);
         }
     },
+    updatePullRequestStatus: (state, action: PayloadAction<{ id: string; status: 'OPEN' | 'MERGED' | 'DECLINED' }>) => {
+        const pr = state.pullRequests[action.payload.id];
+        if (pr) {
+            pr.status = action.payload.status;
+            saveState(state);
+        }
+    },
+    // Integration Actions
+    connectIntegration: (state, action: PayloadAction<{ id: string; config?: any }>) => {
+        const integration = state.integrations[action.payload.id];
+        if (integration) {
+            integration.isConnected = true;
+            integration.connectedAt = new Date().toISOString();
+            integration.syncStatus = 'IDLE'; // Initial status
+            if (action.payload.config) {
+                integration.config = { ...integration.config, ...action.payload.config };
+            }
+            saveState(state);
+        }
+    },
+    disconnectIntegration: (state, action: PayloadAction<string>) => {
+        const integration = state.integrations[action.payload];
+        if (integration) {
+            integration.isConnected = false;
+            integration.connectedAt = undefined;
+            integration.config = undefined;
+            integration.lastSynced = undefined;
+            integration.syncStatus = undefined;
+            saveState(state);
+        }
+    },
+    configureIntegration: (state, action: PayloadAction<{ id: string; config: any }>) => {
+        const integration = state.integrations[action.payload.id];
+        if (integration) {
+            integration.config = { ...integration.config, ...action.payload.config };
+            saveState(state);
+        }
+    },
+    syncIntegration: (state, action: PayloadAction<string>) => {
+        const integration = state.integrations[action.payload];
+        if (integration && integration.isConnected) {
+            integration.lastSynced = new Date().toISOString();
+            integration.syncStatus = 'SUCCESS';
+            saveState(state);
+        }
+    },
+    // Marketplace Actions
+    installPlugin: (state, action: PayloadAction<string>) => {
+        const plugin = state.plugins[action.payload];
+        if(plugin) {
+            plugin.isInstalled = true;
+            saveState(state);
+        }
+    },
+    uninstallPlugin: (state, action: PayloadAction<string>) => {
+        const plugin = state.plugins[action.payload];
+        if(plugin) {
+            plugin.isInstalled = false;
+            saveState(state);
+        }
+    },
+    // Admin Actions
+    updateOrgSettings: (state, action: PayloadAction<Partial<OrgSettings>>) => {
+        state.orgSettings = { ...state.orgSettings, ...action.payload };
+        saveState(state);
+    },
+    restoreBackup: (state, action: PayloadAction<AppState>) => {
+        return action.payload; 
+    },
+    addAuditLog: (state, action: PayloadAction<{ action: string; details: string; userId: string }>) => {
+        if (!state.auditLogs) state.auditLogs = [];
+        state.auditLogs.unshift({
+            id: generateId('LOG'),
+            userId: action.payload.userId,
+            action: action.payload.action,
+            details: action.payload.details,
+            timestamp: new Date().toISOString(),
+            ipAddress: '127.0.0.1' // Mock IP
+        });
+        saveState(state);
+    },
     // Notifications
     addNotification: (state, action: PayloadAction<{ title: string; message: string; type: 'info' | 'success' | 'warning' | 'error' }>) => {
         const newId = generateId('NOTIF');
@@ -465,13 +644,17 @@ const appSlice = createSlice({
 });
 
 export const { 
-    login, logout, toggleTheme, setCurrentProject, updateProject, inviteUser, deleteUser,
+    login, logout, updateCurrentUser, toggleTheme, setCurrentProject, updateProject, deleteProject,
+    inviteUser, deleteUser, updateUserRole,
     updateIssueStatus, updateIssueSprint, reorderIssue, createIssue, deleteIssue, addComment, updateColumn, updateIssue,
     createSprint, editSprint, deleteSprint, startSprint, completeSprint,
-    createRelease, toggleReleaseStatus,
-    createAutomation, toggleAutomation,
-    startTimeLog, stopTimeLog, logManualTime, deleteTimeLog,
-    addRepository, createBranch, deleteBranch, createPullRequest, mergePullRequest,
+    createRelease, editRelease, deleteRelease, toggleReleaseStatus,
+    createAutomation, deleteAutomation, triggerAutomation, toggleAutomation,
+    startTimeLog, stopTimeLog, logManualTime, deleteTimeLog, editTimeLog,
+    addRepository, deleteRepository, createBranch, deleteBranch, createPullRequest, mergePullRequest, updatePullRequestStatus,
+    connectIntegration, disconnectIntegration, configureIntegration, syncIntegration,
+    installPlugin, uninstallPlugin,
+    updateOrgSettings, restoreBackup, addAuditLog,
     addNotification, markNotificationAsRead, markAllNotificationsAsRead, clearNotifications
 } = appSlice.actions;
 
