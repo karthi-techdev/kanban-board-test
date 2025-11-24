@@ -1,4 +1,3 @@
-
 import { configureStore, createSlice, PayloadAction } from '@reduxjs/toolkit';
 import { AppState, Issue, User, Priority, IssueType, Sprint, Project, Release, AutomationRule, TimeLog, Notification, Repository, Branch, PullRequest, OrgSettings, AuditLog } from './types';
 import { getInitialState, saveState, generateId } from './utils';
@@ -217,6 +216,36 @@ const appSlice = createSlice({
         }
     },
     // Board Actions
+    createBoard: (state, action: PayloadAction<{ title: string; projectId: string }>) => {
+        const newId = generateId('BOARD');
+        state.boards[newId] = {
+            id: newId,
+            projectId: action.payload.projectId,
+            title: action.payload.title,
+            columns: [
+                { id: generateId('COL'), title: 'To Do', order: 0 },
+                { id: generateId('COL'), title: 'In Progress', order: 1 },
+                { id: generateId('COL'), title: 'Done', order: 2 }
+            ]
+        };
+        saveState(state);
+    },
+    deleteBoard: (state, action: PayloadAction<string>) => {
+        delete state.boards[action.payload];
+        saveState(state);
+    },
+    createColumn: (state, action: PayloadAction<{ boardId: string; title: string }>) => {
+        const board = state.boards[action.payload.boardId];
+        if (board) {
+            const newColId = generateId('COL');
+            board.columns.push({
+                id: newColId,
+                title: action.payload.title,
+                order: board.columns.length
+            });
+            saveState(state);
+        }
+    },
     updateColumn: (state, action: PayloadAction<{ boardId: string; columnId: string; title: string; limit?: number }>) => {
         const board = state.boards[action.payload.boardId];
         if (board) {
@@ -226,6 +255,22 @@ const appSlice = createSlice({
                 col.limit = action.payload.limit;
                 saveState(state);
             }
+        }
+    },
+    deleteColumn: (state, action: PayloadAction<{ boardId: string; columnId: string }>) => {
+        const board = state.boards[action.payload.boardId];
+        if (board) {
+            board.columns = board.columns.filter(c => c.id !== action.payload.columnId);
+            // Re-map statuses of issues in deleted column to first column
+            const fallbackStatus = board.columns[0]?.id;
+            if (fallbackStatus) {
+                Object.values(state.issues).forEach((issue: Issue) => {
+                    if (issue.statusId === action.payload.columnId) {
+                        issue.statusId = fallbackStatus;
+                    }
+                });
+            }
+            saveState(state);
         }
     },
     // Sprint Actions
@@ -646,7 +691,10 @@ const appSlice = createSlice({
 export const { 
     login, logout, updateCurrentUser, toggleTheme, setCurrentProject, updateProject, deleteProject,
     inviteUser, deleteUser, updateUserRole,
-    updateIssueStatus, updateIssueSprint, reorderIssue, createIssue, deleteIssue, addComment, updateColumn, updateIssue,
+    updateIssueStatus, updateIssueSprint, reorderIssue, createIssue, deleteIssue, addComment, 
+    updateColumn, createColumn, deleteColumn,
+    createBoard, deleteBoard,
+    updateIssue,
     createSprint, editSprint, deleteSprint, startSprint, completeSprint,
     createRelease, editRelease, deleteRelease, toggleReleaseStatus,
     createAutomation, deleteAutomation, triggerAutomation, toggleAutomation,

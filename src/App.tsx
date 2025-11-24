@@ -1,8 +1,6 @@
-
 import React, { useEffect, useState, useRef } from 'react';
-import { HashRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, useNavigate, BrowserRouter } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
-import { flushSync } from 'react-dom';
 import { RootState, login, logout, toggleTheme, markNotificationAsRead, markAllNotificationsAsRead, clearNotifications } from './store';
 import { AppState, Notification } from './types';
 import { BoardView } from './components/Board';
@@ -18,6 +16,7 @@ import { AdminView } from './components/AdminView';
 import { HelpCenterView } from './components/HelpCenter';
 import { Layout, Users, CheckSquare, Settings, Bell, Search, Moon, Sun, Calendar, ChevronLeft, ChevronRight, List, Rocket, Zap, BarChart, GitBranch, Clock, Shield, Globe, HelpCircle, X, LogOut, Mail, Lock, User, Plug } from './components/Icons';
 import { formatTimeAgo } from './utils';
+import Tippy from '@tippyjs/react';
 
 // --- Layout Components ---
 
@@ -26,10 +25,9 @@ const SidebarItem = ({ icon: Icon, label, path, count, collapsed }: any) => {
     const navigate = useNavigate();
     const active = location.pathname === path || (path !== '/' && location.pathname.startsWith(path));
 
-    return (
+    const element = (
         <div 
             onClick={() => navigate(path)}
-            title={collapsed ? label : ''}
             className={`
                 flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer transition-all group mb-1
                 ${active 
@@ -42,6 +40,16 @@ const SidebarItem = ({ icon: Icon, label, path, count, collapsed }: any) => {
             {!collapsed && count && <span className="bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] px-1.5 rounded font-bold">{count}</span>}
         </div>
     );
+
+    if (collapsed) {
+        return (
+            <Tippy content={label} placement="right" arrow={true}>
+                {element}
+            </Tippy>
+        );
+    }
+
+    return element;
 };
 
 const NotificationDropdown = () => {
@@ -191,58 +199,6 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       prevNotifCount.current = notifications?.length || 0;
   }, [notifications]);
 
-  const handleToggleTheme = async (e: React.MouseEvent) => {
-    // Fallback for browsers that don't support View Transitions
-    if (!(document as any).startViewTransition) {
-        dispatch(toggleTheme());
-        return;
-    }
-
-    const target = e.currentTarget as HTMLElement;
-    const rect = target.getBoundingClientRect();
-    
-    // Center of the button
-    const x = rect.left + rect.width / 2;
-    const y = rect.top + rect.height / 2;
-
-    // Calculate distance to furthest corner
-    const endRadius = Math.hypot(
-        Math.max(x, window.innerWidth - x),
-        Math.max(y, window.innerHeight - y)
-    );
-
-    // Capture the transition
-    const transition = (document as any).startViewTransition(() => {
-        // Use flushSync to ensure DOM updates synchronously
-        flushSync(() => {
-            dispatch(toggleTheme());
-        });
-    });
-
-    transition.ready.then(() => {
-        const clipPath = [
-            `circle(0px at ${x}px ${y}px)`,
-            `circle(${endRadius}px at ${x}px ${y}px)`,
-        ];
-
-        // Animate the "new" view (which is either the dark mode view or light mode view depending on switch)
-        // The logic here assumes we are "revealing" the new state.
-        // If we are switching TO Dark Mode: The new view is Dark. We animate the clip path of ::view-transition-new from 0 to full.
-        // If we are switching TO Light Mode: The new view is Light. We animate the clip path of ::view-transition-new from 0 to full.
-        document.documentElement.animate(
-            {
-                clipPath: clipPath,
-            },
-            {
-                duration: 500,
-                easing: 'ease-in-out',
-                // The pseudo-element is always ::view-transition-new(root) because we want to reveal the *new* state
-                pseudoElement: '::view-transition-new(root)',
-            }
-        );
-    });
-  };
-
   const handleLogout = () => {
       if (window.confirm('Are you sure you want to log out?')) {
           dispatch(logout());
@@ -252,13 +208,13 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return (
     <div className="flex h-screen w-full bg-white dark:bg-slate-900 font-sans overflow-hidden">
       {/* Sidebar */}
-      <div className={`${collapsed ? 'w-20' : 'w-64'} flex-shrink-0 border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex flex-col transition-all duration-300 z-20 relative`}>
+      <div className={`${collapsed ? 'w-20' : 'w-64'} flex-shrink-0 border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex flex-col transition-all duration-300 z-90 relative`}>
         {/* Logo */}
         <div className="h-16 flex items-center justify-between px-6 border-b border-slate-200 dark:border-slate-800">
           <div className={`flex items-center ${collapsed ? 'justify-center w-full' : ''}`}>
             <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shadow-lg shadow-indigo-500/30 flex-shrink-0" style={{ backgroundColor: orgSettings?.primaryColor }}>
               {orgSettings?.logoUrl ? (
-                  <img src={orgSettings.logoUrl} className="w-full h-full object-contain rounded-sm" alt="Logo" />
+                  <img src={orgSettings.logoUrl} className="w-full h-full object-contain rounded-lg" alt="Logo" />
               ) : (
                   <Layout className="text-white" size={18} />
               )}
@@ -309,20 +265,24 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         
         {/* Sidebar Footer */}
         <div className="p-3 border-t border-slate-200 dark:border-slate-800 space-y-1">
-            <div 
-                onClick={() => navigate('/help')}
-                className="flex items-center px-3 py-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 rounded-md cursor-pointer transition-colors group"
-            >
-                <HelpCircle size={18} className="group-hover:text-indigo-600"/>
-                {!collapsed && <span className="ml-3 text-sm font-medium">Help Center</span>}
-            </div>
-            <div 
-                onClick={handleLogout}
-                className="flex items-center px-3 py-2 text-slate-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md cursor-pointer transition-colors group"
-            >
-                <LogOut size={18} className="group-hover:text-red-600"/>
-                {!collapsed && <span className="ml-3 text-sm font-medium group-hover:text-red-600">Log Out</span>}
-            </div>
+            <Tippy content="Help Center" placement="right" disabled={!collapsed}>
+                <div 
+                    onClick={() => navigate('/help')}
+                    className={`flex items-center px-3 py-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 rounded-md cursor-pointer transition-colors group ${collapsed ? 'justify-center' : ''}`}
+                >
+                    <HelpCircle size={18} className="group-hover:text-indigo-600"/>
+                    {!collapsed && <span className="ml-3 text-sm font-medium">Help Center</span>}
+                </div>
+            </Tippy>
+            <Tippy content="Log Out" placement="right" disabled={!collapsed}>
+                <div 
+                    onClick={handleLogout}
+                    className={`flex items-center px-3 py-2 text-slate-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md cursor-pointer transition-colors group ${collapsed ? 'justify-center' : ''}`}
+                >
+                    <LogOut size={18} className="group-hover:text-red-600"/>
+                    {!collapsed && <span className="ml-3 text-sm font-medium group-hover:text-red-600">Log Out</span>}
+                </div>
+            </Tippy>
         </div>
       </div>
 
@@ -338,10 +298,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             </div>
 
             <div className="flex items-center gap-4">
-                <button 
-                    onClick={handleToggleTheme} 
-                    className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors overflow-hidden relative"
-                >
+                <button onClick={() => dispatch(toggleTheme())} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors">
                     {isDarkMode ? <Sun size={20} className="text-yellow-400" /> : <Moon size={20} />}
                 </button>
                 
@@ -427,8 +384,8 @@ const AuthPage = () => {
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center p-4 transition-colors">
         <div className="max-w-md w-full bg-white dark:bg-slate-900 rounded-3xl shadow-2xl p-8 border border-slate-100 dark:border-slate-800">
             <div className="text-center mb-8">
-                <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-lg shadow-indigo-500/30">
-                    <Layout className="text-white" size={28} />
+                <div className="flex items-center justify-center mx-auto mb-3">
+                    <span className="font-decog text-4xl text-slate-900 dark:text-white font-semibold tracking-[.05rem]">Flownyx.</span>
                 </div>
                 <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2 tracking-tight">
                     {isRegister ? 'Create Account' : 'Welcome back'}
@@ -525,7 +482,7 @@ const App = () => {
   const isAuthenticated = useSelector((state: RootState) => (state.app as AppState).isAuthenticated);
 
   return (
-    <HashRouter>
+    <BrowserRouter>
       <Routes>
         <Route path="/login" element={isAuthenticated ? <Navigate to="/" /> : <AuthPage />} />
         <Route path="/*" element={
@@ -555,7 +512,7 @@ const App = () => {
           ) : <Navigate to="/login" />
         } />
       </Routes>
-    </HashRouter>
+    </BrowserRouter>
   );
 };
 

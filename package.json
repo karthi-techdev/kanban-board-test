@@ -4,6 +4,7 @@
   "private": true,
   "dependencies": {
     "@reduxjs/toolkit": "^2.0.0",
+    "@tippyjs/react": "^4.2.6",
     "clsx": "^2.1.0",
     "date-fns": "^3.0.0",
     "lucide-react": "^0.300.0",

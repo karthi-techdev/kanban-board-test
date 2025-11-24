@@ -43,6 +43,18 @@ const MOCK_USERS: Record<string, User> = {
   'u1': { id: 'u1', name: 'Alex Johnson', email: 'alex@acme.com', avatarUrl: 'https://picsum.photos/seed/u1/200', role: 'Admin', inviteStatus: 'approved' },
   'u2': { id: 'u2', name: 'Sarah Connor', email: 'sarah@acme.com', avatarUrl: 'https://picsum.photos/seed/u2/200', role: 'Member', inviteStatus: 'approved' },
   'u3': { id: 'u3', name: 'Mike Ross', email: 'mike@acme.com', avatarUrl: 'https://picsum.photos/seed/u3/200', role: 'Viewer', inviteStatus: 'approved' },
+  'u4': { id: 'u4', name: 'Emily Chen', email: 'emily.chen@acme.com', avatarUrl: 'https://picsum.photos/seed/u4/200', role: 'Member', inviteStatus: 'approved' },
+  'u5': { id: 'u5', name: 'David Rodriguez', email: 'david.rodriguez@acme.com', avatarUrl: 'https://picsum.photos/seed/u5/200', role: 'Member', inviteStatus: 'approved' },
+  'u6': { id: 'u6', name: 'Jessica Williams', email: 'jessica.williams@acme.com', avatarUrl: 'https://picsum.photos/seed/u6/200', role: 'Admin', inviteStatus: 'approved' },
+  'u7': { id: 'u7', name: 'Marcus Thompson', email: 'marcus.thompson@acme.com', avatarUrl: 'https://picsum.photos/seed/u7/200', role: 'Member', inviteStatus: 'approved' },
+  'u8': { id: 'u8', name: 'Sophia Garcia', email: 'sophia.garcia@acme.com', avatarUrl: 'https://picsum.photos/seed/u8/200', role: 'Member', inviteStatus: 'approved' },
+  'u9': { id: 'u9', name: 'Brian Kim', email: 'brian.kim@acme.com', avatarUrl: 'https://picsum.photos/seed/u9/200', role: 'Viewer', inviteStatus: 'approved' },
+  'u10': { id: 'u10', name: 'Amanda Wilson', email: 'amanda.wilson@acme.com', avatarUrl: 'https://picsum.photos/seed/u10/200', role: 'Member', inviteStatus: 'approved' },
+  'u11': { id: 'u11', name: 'Kevin Patel', email: 'kevin.patel@acme.com', avatarUrl: 'https://picsum.photos/seed/u11/200', role: 'Member', inviteStatus: 'approved' },
+  'u12': { id: 'u12', name: 'Olivia Martinez', email: 'olivia.martinez@acme.com', avatarUrl: 'https://picsum.photos/seed/u12/200', role: 'Viewer', inviteStatus: 'approved' },
+  'u13': { id: 'u13', name: 'Daniel Brown', email: 'daniel.brown@acme.com', avatarUrl: 'https://picsum.photos/seed/u13/200', role: 'Member', inviteStatus: 'approved' },
+  'u14': { id: 'u14', name: 'Lisa Anderson', email: 'lisa.anderson@acme.com', avatarUrl: 'https://picsum.photos/seed/u14/200', role: 'Admin', inviteStatus: 'approved' },
+  'u15': { id: 'u15', name: 'Robert Taylor', email: 'robert.taylor@acme.com', avatarUrl: 'https://picsum.photos/seed/u15/200', role: 'Member', inviteStatus: 'pending' },
 };
 
 const MOCK_PROJECTS: Project[] = [
