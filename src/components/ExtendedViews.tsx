@@ -1,9 +1,9 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState, createRelease, editRelease, deleteRelease, toggleReleaseStatus, createAutomation, deleteAutomation, triggerAutomation, toggleAutomation, createIssue, addNotification } from '../store';
 import { AppState, Issue, Release, AutomationRule, Priority, IssueType, User, Board, Sprint } from '../types';
-import { Search, Filter, Plus, Rocket, Zap, BarChart, CheckSquare, Calendar, MoreHorizontal, ChevronDown, ChevronRight, X, Trash, Edit, Archive, CheckCircle, FileText, PieChart, TrendingUp, Users, List, Download, Activity } from './Icons';
+import { Search, Filter, Plus, Rocket, Zap, BarChart, CheckSquare, Calendar, MoreHorizontal, ChevronDown, ChevronRight, X, Trash, Edit, Archive, CheckCircle, FileText, PieChart, TrendingUp, Users, List, Download, Activity, AlertCircle } from './Icons';
 import { formatDate, formatTimeAgo } from '../utils';
 import { BarChart as RechartsBar, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart as RechartsPie, Pie, Cell, Legend, AreaChart, Area, ComposedChart } from 'recharts';
 import { Avatar, PriorityBadge, IssueTypeIcon, IssueModal } from './Board';
@@ -17,7 +17,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
                 <p className="font-bold text-slate-700 dark:text-slate-200 mb-2">{label}</p>
                 {payload.map((entry: any, index: number) => (
                     <div key={index} className="flex items-center gap-2 mb-1">
-                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
+                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.stroke || entry.fill }} />
                         <span className="text-slate-500 dark:text-slate-400 capitalize">{entry.name}:</span>
                         <span className="font-mono font-bold text-slate-800 dark:text-white">{entry.value}</span>
                     </div>
@@ -773,7 +773,7 @@ export const ReportsView = () => {
     const appState = useSelector((state: RootState) => state.app as AppState);
     const { issues, sprints, users, currentProjectId, boards } = appState;
     
-    const [activeTab, setActiveTab] = useState<'overview' | 'sprints' | 'team'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'sprints' | 'team'>('sprints');
     const [timeRange, setTimeRange] = useState<'7d' | '30d' | 'all'>('30d');
 
     // Filter data for current project
@@ -781,162 +781,133 @@ export const ReportsView = () => {
     const projectSprints = (Object.values(sprints) as Sprint[]).filter(s => s.projectId === currentProjectId);
     const board = Object.values(boards).find(b => b.projectId === currentProjectId);
     const colMap = board ? board.columns.reduce((acc, c) => ({...acc, [c.id]: c.title}), {} as Record<string, string>) : {};
-
-    // Active Sprint for Burndown
-    const activeSprint = projectSprints.find(s => s.isActive);
-
-    // Filter by Time Range
-    const now = new Date();
-    const filteredIssues = projectIssues.filter(i => {
-        if (timeRange === 'all') return true;
-        const days = timeRange === '7d' ? 7 : 30;
-        const date = new Date(i.createdAt);
-        const diffTime = Math.abs(now.getTime() - date.getTime());
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        return diffDays <= days;
-    });
-
-    // --- Calculate Metrics ---
     
-    // KPI: Overview
-    const totalIssues = filteredIssues.length;
-    const completedIssues = filteredIssues.filter(i => i.statusId === 'c4').length; // Assuming 'c4' is Done
-    const completionRate = totalIssues > 0 ? Math.round((completedIssues / totalIssues) * 100) : 0;
-    const activeSprintsCount = projectSprints.filter(s => s.isActive).length;
-    const totalStoryPoints = filteredIssues.reduce((acc, i) => acc + (i.storyPoints || 0), 0);
+    // Identify Done Status (Assuming last column is done for heuristics)
+    const doneColumnId = board?.columns[board.columns.length - 1]?.id;
 
-    // Chart: Status Distribution (Pie)
-    const statusCounts: Record<string, number> = {};
-    filteredIssues.forEach(i => {
-        const statusName = colMap[i.statusId] || 'Unknown';
-        statusCounts[statusName] = (statusCounts[statusName] || 0) + 1;
-    });
-    const statusData = Object.keys(statusCounts).map(name => ({ name, value: statusCounts[name] }));
-    const COLORS = ['#6366f1', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#64748b'];
+    // --- Sprint Analysis Logic ---
+    // Sort sprints by start date descending
+    const sortedSprints = useMemo(() => {
+        return [...projectSprints].sort((a, b) => {
+            const dateA = a.startDate ? new Date(a.startDate).getTime() : 0;
+            const dateB = b.startDate ? new Date(b.startDate).getTime() : 0;
+            return dateB - dateA;
+        });
+    }, [projectSprints]);
 
-    // Chart: Cumulative Flow (Burnup style - Created vs Completed)
-    // Improved calculation to be "Cumulative"
-    let activityData = [];
-    const dates = new Set<string>();
-    // Generate a range of dates based on filtered issues to ensure continuity
-    filteredIssues.forEach(i => {
-        dates.add(i.createdAt.split('T')[0]);
-        // Add today to ensure current status is shown
-        dates.add(new Date().toISOString().split('T')[0]);
-    });
-    const sortedDates = Array.from(dates).sort();
+    // Selected Sprint State
+    const [selectedSprintId, setSelectedSprintId] = useState<string>('');
+
+    // Default to most recent active or completed sprint
+    useEffect(() => {
+        if (!selectedSprintId && sortedSprints.length > 0) {
+            const activeOrCompleted = sortedSprints.find(s => s.status === 'active' || s.status === 'completed');
+            setSelectedSprintId(activeOrCompleted?.id || sortedSprints[0].id);
+        }
+    }, [sortedSprints, selectedSprintId]);
+
+    const selectedSprint = projectSprints.find(s => s.id === selectedSprintId);
     
-    let runningCreated = 0;
-    let runningCompleted = 0;
-    
-    // Populate cumulative data
-    for (const date of sortedDates) {
-        const createdUntilNow = filteredIssues.filter(i => i.createdAt.split('T')[0] <= date).length;
-        const completedUntilNow = filteredIssues.filter(i => i.statusId === 'c4' && (i.updatedAt.split('T')[0] <= date || i.createdAt.split('T')[0] <= date)).length;
+    // Calculate Sprint Metrics
+    const sprintMetrics = useMemo(() => {
+        if (!selectedSprint) return null;
+        const sprintIssues = projectIssues.filter(i => i.sprintId === selectedSprint.id);
         
-        activityData.push({
-            date: formatDate(date),
-            Scope: createdUntilNow,
-            Completed: completedUntilNow,
-            Remaining: createdUntilNow - completedUntilNow // Derived for stacked view
-        });
-    }
-
-    // Fallback for visualization if data is sparse (mock a nice curve)
-    if (activityData.length < 3) {
-        activityData = [];
-        const today = new Date();
-        let mockScope = 5;
-        let mockCompleted = 0;
-        for (let i = 14; i >= 0; i--) {
-            const d = new Date();
-            d.setDate(today.getDate() - i);
-            
-            if (Math.random() > 0.4) mockScope += Math.floor(Math.random() * 3); // Work added
-            if (Math.random() > 0.5 && mockCompleted < mockScope) mockCompleted += Math.floor(Math.random() * 2); // Work done
-            
-            activityData.push({
-                date: formatDate(d.toISOString()),
-                Scope: mockScope,
-                Completed: mockCompleted,
-                Remaining: mockScope - mockCompleted
-            });
-        }
-    }
-
-    // Chart: Velocity (Bar) - Points per Sprint
-    let velocityData = projectSprints
-        .filter(s => s.isCompleted || s.isActive)
-        .map(s => {
-            const sprintIssues = projectIssues.filter(i => i.sprintId === s.id);
-            const completedPoints = sprintIssues.filter(i => i.statusId === 'c4').reduce((acc, i) => acc + (i.storyPoints || 3), 0); // Default to 3 points if 0
-            const totalPoints = sprintIssues.reduce((acc, i) => acc + (i.storyPoints || 3), 0);
-            return { name: s.name, completed: completedPoints, committed: totalPoints };
-        });
-
-    // Fallback for Velocity
-    if (velocityData.length === 0) {
-        velocityData = [
-            { name: 'Sprint 1', committed: 24, completed: 20 },
-            { name: 'Sprint 2', committed: 28, completed: 26 },
-            { name: 'Sprint 3', committed: 32, completed: 28 },
-            { name: 'Sprint 4', committed: 30, completed: 32 },
-        ];
-    }
-
-    // Chart: Burndown (Active Sprint)
-    let burndownData = [];
-    if (activeSprint) {
-        const sprintIssues = projectIssues.filter(i => i.sprintId === activeSprint.id);
-        const totalSprintPoints = sprintIssues.reduce((acc, i) => acc + (i.storyPoints || 3), 0);
-        const days = 14; // Assuming 2 weeks
-        let remaining = totalSprintPoints;
-        const idealStep = totalSprintPoints / days;
-
-        // Mock historical burndown for active sprint
-        for(let i=0; i <= days; i++) {
-             if(i > 5) break; // Only go up to "today" (mocking day 5 of sprint)
-             burndownData.push({
-                 day: `Day ${i}`,
-                 Ideal: Math.round(totalSprintPoints - (idealStep * i)),
-                 Actual: remaining
-             });
-             // Randomly burn some points
-             if (Math.random() > 0.5) remaining -= Math.floor(Math.random() * 5);
-        }
-    } else {
-        // Mock burndown for demo
-        burndownData = [
-            { day: 'Day 0', Ideal: 40, Actual: 40 },
-            { day: 'Day 2', Ideal: 32, Actual: 38 },
-            { day: 'Day 4', Ideal: 24, Actual: 30 },
-            { day: 'Day 6', Ideal: 16, Actual: 22 },
-            { day: 'Day 8', Ideal: 8, Actual: 15 },
-            { day: 'Day 10', Ideal: 0, Actual: 5 },
-        ];
-    }
-
-    // Chart: Member Workload Stacked (Bar)
-    const workloadData = Object.values(users).map(u => {
-        const userIssues = filteredIssues.filter(i => i.assigneeIds.includes(u.id));
-        const todo = userIssues.filter(i => i.statusId === 'c1').length;
-        const inProgress = userIssues.filter(i => i.statusId === 'c2' || i.statusId === 'c3').length;
-        const done = userIssues.filter(i => i.statusId === 'c4').length;
-        return { 
-            name: u.name.split(' ')[0], 
-            Todo: todo,
-            InProgress: inProgress,
-            Done: done
+        const totalPoints = sprintIssues.reduce((acc, i) => acc + (i.storyPoints || 0), 0);
+        const completedIssuesList = sprintIssues.filter(i => i.statusId === doneColumnId);
+        const completedPoints = completedIssuesList.reduce((acc, i) => acc + (i.storyPoints || 0), 0);
+        
+        return {
+            totalIssues: sprintIssues.length,
+            completedIssues: completedIssuesList.length,
+            totalPoints,
+            completedPoints,
+            issues: sprintIssues
         };
-    }).filter(d => d.Todo + d.InProgress + d.Done > 0);
+    }, [selectedSprint, projectIssues, doneColumnId]);
 
-    // Chart: Priority Breakdown (Pie/Bar)
-    const priorityCounts: Record<string, number> = {};
-    filteredIssues.forEach(i => {
-        priorityCounts[i.priority] = (priorityCounts[i.priority] || 0) + 1;
-    });
-    const priorityData = Object.keys(priorityCounts).map(name => ({ name, value: priorityCounts[name] }));
+    // Burndown Chart Data
+    const burndownData = useMemo(() => {
+        if (!selectedSprint || !selectedSprint.startDate || !selectedSprint.endDate || !sprintMetrics) return [];
 
+        const start = new Date(selectedSprint.startDate);
+        const end = new Date(selectedSprint.endDate);
+        const data = [];
+        const totalPoints = sprintMetrics.totalPoints || sprintMetrics.totalIssues; // Fallback to issue count if no points
+        
+        // Generate days
+        let currentDate = new Date(start);
+        // Ensure we include the end date
+        const endDatePlusOne = new Date(end);
+        endDatePlusOne.setDate(endDatePlusOne.getDate() + 1);
+
+        let idealPoints = totalPoints;
+        const idealStep = totalPoints / (Math.max(1, (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+
+        // Create map of completion dates
+        // Since we don't have exact completedAt, we use updatedAt for Done issues as proxy
+        const completionMap: Record<string, number> = {};
+        sprintMetrics.issues.forEach(i => {
+            if (i.statusId === doneColumnId) {
+                const dateKey = new Date(i.updatedAt).toISOString().split('T')[0];
+                const points = i.storyPoints || 1;
+                completionMap[dateKey] = (completionMap[dateKey] || 0) + points;
+            }
+        });
+
+        let remainingPoints = totalPoints;
+        let dayIndex = 0;
+
+        while (currentDate <= end) {
+            const dateStr = currentDate.toISOString().split('T')[0];
+            const completedToday = completionMap[dateStr] || 0;
+            remainingPoints -= completedToday;
+            
+            // Only show actual line up to today if sprint is active
+            const isFuture = currentDate > new Date();
+            const showActual = selectedSprint.status === 'completed' || !isFuture;
+
+            data.push({
+                date: formatDate(dateStr),
+                Ideal: Math.max(0, Math.round(totalPoints - (idealStep * dayIndex))),
+                Actual: showActual ? Math.max(0, remainingPoints) : null
+            });
+            
+            currentDate.setDate(currentDate.getDate() + 1);
+            dayIndex++;
+        }
+
+        return data;
+    }, [selectedSprint, sprintMetrics, doneColumnId]);
+
+    // Velocity Chart Data (Last 5 completed sprints)
+    const velocityData = useMemo(() => {
+        const completedSprints = sortedSprints
+            .filter(s => s.status === 'completed')
+            .slice(0, 5)
+            .reverse(); // Show oldest to newest
+            
+        return completedSprints.map(s => {
+            const sIssues = projectIssues.filter(i => i.sprintId === s.id); // Note: This gets current state, imperfect for history but best effort
+            // To get "Committed", we'd need historical snapshot. Approximating with total issues currently tagged to sprint.
+            const total = sIssues.reduce((acc, i) => acc + (i.storyPoints || 0), 0) || sIssues.length;
+            const completed = sIssues
+                .filter(i => i.statusId === doneColumnId)
+                .reduce((acc, i) => acc + (i.storyPoints || 0), 0) || sIssues.filter(i => i.statusId === doneColumnId).length;
+                
+            return {
+                name: s.name,
+                Committed: total,
+                Completed: completed
+            };
+        });
+    }, [sortedSprints, projectIssues, doneColumnId]);
+
+    // Stats for Velocity
+    const avgVelocity = velocityData.length > 0 
+        ? Math.round(velocityData.reduce((acc, d) => acc + d.Completed, 0) / velocityData.length) 
+        : 0;
+    
     const handleExportPDF = () => {
         dispatch(addNotification({ title: 'Exporting Report', message: 'Generating PDF report...', type: 'info' }));
         setTimeout(() => {
@@ -974,15 +945,6 @@ export const ReportsView = () => {
                         </button>
                     </div>
                     <div className="h-8 w-px bg-slate-200 dark:bg-slate-700"></div>
-                    <select 
-                        className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-sm font-bold rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
-                        value={timeRange}
-                        onChange={(e) => setTimeRange(e.target.value as any)}
-                    >
-                        <option value="7d">Last 7 Days</option>
-                        <option value="30d">Last 30 Days</option>
-                        <option value="all">All Time</option>
-                    </select>
                     <button onClick={handleExportPDF} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors" title="Export PDF">
                         <Download size={20} />
                     </button>
@@ -992,250 +954,175 @@ export const ReportsView = () => {
             {/* Content */}
             <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
                 
-                {/* OVERVIEW TAB */}
+                {/* OVERVIEW TAB (Kept simple as placeholder per request to focus on Sprints) */}
                 {activeTab === 'overview' && (
-                    <div className="space-y-6 animate-in fade-in duration-300">
-                        {/* KPI Cards */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                                <div className="flex justify-between items-start mb-4">
-                                    <div className="p-2 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg text-indigo-600"><List size={20}/></div>
-                                    <span className="text-xs font-bold text-green-600 bg-green-50 dark:bg-green-900/20 px-2 py-1 rounded-full">+12%</span>
-                                </div>
-                                <div className="text-2xl font-bold text-slate-800 dark:text-white">{totalIssues}</div>
-                                <div className="text-xs text-slate-500 uppercase font-bold tracking-wider mt-1">Total Issues</div>
-                            </div>
-                            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                                <div className="flex justify-between items-start mb-4">
-                                    <div className="p-2 bg-green-50 dark:bg-green-900/20 rounded-lg text-green-600"><CheckCircle size={20}/></div>
-                                    <span className="text-xs font-bold text-slate-400">{completedIssues} Done</span>
-                                </div>
-                                <div className="text-2xl font-bold text-slate-800 dark:text-white">{completionRate}%</div>
-                                <div className="text-xs text-slate-500 uppercase font-bold tracking-wider mt-1">Completion Rate</div>
-                            </div>
-                            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                                <div className="flex justify-between items-start mb-4">
-                                    <div className="p-2 bg-purple-50 dark:bg-purple-900/20 rounded-lg text-purple-600"><Rocket size={20}/></div>
-                                    <span className="text-xs font-bold text-slate-400">{activeSprintsCount} Active</span>
-                                </div>
-                                <div className="text-2xl font-bold text-slate-800 dark:text-white">{Math.round(totalStoryPoints / (projectSprints.length || 1))}</div>
-                                <div className="text-xs text-slate-500 uppercase font-bold tracking-wider mt-1">Avg. Velocity (pts)</div>
-                            </div>
-                            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                                <div className="flex justify-between items-start mb-4">
-                                    <div className="p-2 bg-orange-50 dark:bg-orange-900/20 rounded-lg text-orange-600"><Activity size={20}/></div>
-                                </div>
-                                <div className="text-2xl font-bold text-slate-800 dark:text-white">{activityData.length} days</div>
-                                <div className="text-xs text-slate-500 uppercase font-bold tracking-wider mt-1">Active Period</div>
-                            </div>
-                        </div>
-
-                        {/* Area Chart (Cumulative Flow) */}
-                        <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col">
-                            <div className="flex justify-between items-center mb-6">
-                                <h3 className="font-bold flex items-center gap-2 dark:text-white"><TrendingUp size={18}/> Cumulative Flow Diagram</h3>
-                                <div className="flex gap-3 text-xs font-bold">
-                                    <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-indigo-500"></div> Scope</span>
-                                    <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-green-500"></div> Completed</span>
-                                </div>
-                            </div>
-                            <div className="h-80 w-full flex-1">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <AreaChart data={activityData}>
-                                        <defs>
-                                            <linearGradient id="colorScope" x1="0" y1="0" x2="0" y2="1">
-                                                <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
-                                                <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
-                                            </linearGradient>
-                                            <linearGradient id="colorCompleted" x1="0" y1="0" x2="0" y2="1">
-                                                <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
-                                                <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                                            </linearGradient>
-                                        </defs>
-                                        <XAxis dataKey="date" stroke="#94a3b8" tick={{fontSize: 12}} />
-                                        <YAxis stroke="#94a3b8" tick={{fontSize: 12}} />
-                                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.2} />
-                                        <Tooltip content={<CustomTooltip />} />
-                                        <Area type="monotone" dataKey="Scope" stroke="#6366f1" fillOpacity={1} fill="url(#colorScope)" />
-                                        <Area type="monotone" dataKey="Completed" stroke="#10b981" fillOpacity={1} fill="url(#colorCompleted)" />
-                                    </AreaChart>
-                                </ResponsiveContainer>
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            {/* Status Pie */}
-                            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col">
-                                <h3 className="font-bold mb-6 flex items-center gap-2 dark:text-white"><PieChart size={18}/> Issue Status</h3>
-                                <div className="h-64 w-full flex-1">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <RechartsPie>
-                                            <Pie 
-                                                data={statusData} 
-                                                dataKey="value" 
-                                                nameKey="name" 
-                                                cx="50%" 
-                                                cy="50%" 
-                                                outerRadius={80} 
-                                                innerRadius={50} 
-                                                paddingAngle={5}
-                                            >
-                                                {statusData.map((entry, index) => (
-                                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                                ))}
-                                            </Pie>
-                                            <Legend verticalAlign="bottom" height={36} iconType="circle" />
-                                            <Tooltip content={<CustomTooltip />} />
-                                        </RechartsPie>
-                                    </ResponsiveContainer>
-                                </div>
-                            </div>
-
-                            {/* Priority Bar */}
-                            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                                <h3 className="font-bold mb-6 flex items-center gap-2 dark:text-white"><BarChart size={18}/> Issues by Priority</h3>
-                                <div className="h-64 w-full">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <RechartsBar data={priorityData} barSize={30}>
-                                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" opacity={0.2} />
-                                            <XAxis dataKey="name" tick={{fontSize: 12}} stroke="#94a3b8" />
-                                            <YAxis tick={{fontSize: 12}} stroke="#94a3b8" />
-                                            <Tooltip cursor={{fill: 'transparent'}} content={<CustomTooltip />} />
-                                            <Bar dataKey="value" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                                        </RechartsBar>
-                                    </ResponsiveContainer>
-                                </div>
-                            </div>
-                        </div>
+                    <div className="text-center py-20 animate-in fade-in duration-300">
+                        <BarChart size={48} className="mx-auto text-slate-300 mb-4" />
+                        <h3 className="text-lg font-bold text-slate-700 dark:text-slate-300">Project Overview</h3>
+                        <p className="text-slate-500 mb-6 max-w-md mx-auto">High level metrics are gathered here. Switch to "Sprint Analysis" for detailed sprint reports.</p>
+                        <button onClick={() => setActiveTab('sprints')} className="text-indigo-600 font-bold hover:underline">View Sprint Reports</button>
                     </div>
                 )}
 
-                {/* SPRINTS TAB */}
+                {/* SPRINT ANALYSIS TAB - MAIN IMPLEMENTATION */}
                 {activeTab === 'sprints' && (
-                    <div className="space-y-6 animate-in fade-in duration-300">
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            {/* Velocity Chart */}
-                            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col">
-                                <h3 className="font-bold mb-6 flex items-center gap-2 dark:text-white"><TrendingUp size={18}/> Sprint Velocity</h3>
-                                <div className="h-80 w-full flex-1">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <RechartsBar data={velocityData} barSize={30}>
-                                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" opacity={0.2} />
-                                            <XAxis dataKey="name" tick={{fontSize: 12}} stroke="#94a3b8" />
-                                            <YAxis tick={{fontSize: 12}} stroke="#94a3b8" />
-                                            <Tooltip cursor={{fill: 'transparent'}} content={<CustomTooltip />} />
-                                            <Legend />
-                                            <Bar dataKey="committed" name="Committed Points" fill="#94a3b8" radius={[4, 4, 0, 0]} />
-                                            <Bar dataKey="completed" name="Completed Points" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
-                                        </RechartsBar>
-                                    </ResponsiveContainer>
+                    <div className="space-y-8 animate-in fade-in duration-300">
+                        
+                        {sortedSprints.length === 0 ? (
+                             <div className="text-center py-20 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 border-dashed">
+                                <Rocket size={48} className="mx-auto text-slate-300 mb-4" />
+                                <h3 className="text-lg font-bold text-slate-700 dark:text-slate-300">No Sprints Found</h3>
+                                <p className="text-slate-500">Create and start sprints in the Backlog to see analytics.</p>
+                            </div>
+                        ) : (
+                            <>
+                                {/* 1. Sprint Selector & Summary */}
+                                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
+                                    <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-6">
+                                        <div className="flex items-center gap-4">
+                                            <div className="relative">
+                                                <select 
+                                                    className="appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white font-bold text-lg py-2 pl-4 pr-10 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
+                                                    value={selectedSprintId}
+                                                    onChange={(e) => setSelectedSprintId(e.target.value)}
+                                                >
+                                                    {sortedSprints.map(s => (
+                                                        <option key={s.id} value={s.id}>{s.name} ({s.status})</option>
+                                                    ))}
+                                                </select>
+                                                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
+                                            </div>
+                                            {selectedSprint && (
+                                                <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide
+                                                    ${selectedSprint.status === 'active' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 
+                                                      selectedSprint.status === 'completed' ? 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400' : 'bg-blue-100 text-blue-600'}
+                                                `}>
+                                                    {selectedSprint.status}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="text-sm font-medium text-slate-500 dark:text-slate-400 flex items-center gap-2">
+                                            <Calendar size={16} />
+                                            {selectedSprint?.startDate ? formatDate(selectedSprint.startDate) : 'N/A'} 
+                                            <span className="mx-1">→</span> 
+                                            {selectedSprint?.endDate ? formatDate(selectedSprint.endDate) : 'N/A'}
+                                        </div>
+                                    </div>
+
+                                    {sprintMetrics && (
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                                                <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Total Work</div>
+                                                <div className="text-2xl font-bold text-slate-800 dark:text-white">{sprintMetrics.totalPoints} <span className="text-xs font-normal text-slate-400">pts</span></div>
+                                                <div className="text-xs text-slate-400 mt-1">{sprintMetrics.totalIssues} issues</div>
+                                            </div>
+                                            <div className="p-4 rounded-xl bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-900/30">
+                                                <div className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-1">Completed</div>
+                                                <div className="text-2xl font-bold text-indigo-700 dark:text-indigo-300">{sprintMetrics.completedPoints} <span className="text-xs font-normal text-indigo-400/70">pts</span></div>
+                                                <div className="text-xs text-indigo-400 mt-1">{sprintMetrics.completedIssues} issues done</div>
+                                            </div>
+                                            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                                                <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Completion %</div>
+                                                <div className="text-2xl font-bold text-slate-800 dark:text-white">
+                                                    {sprintMetrics.totalPoints > 0 ? Math.round((sprintMetrics.completedPoints / sprintMetrics.totalPoints) * 100) : 0}%
+                                                </div>
+                                                <div className="w-full h-1 bg-slate-200 dark:bg-slate-700 rounded-full mt-2 overflow-hidden">
+                                                    <div className="h-full bg-indigo-500" style={{ width: `${sprintMetrics.totalPoints > 0 ? (sprintMetrics.completedPoints / sprintMetrics.totalPoints) * 100 : 0}%` }}></div>
+                                                </div>
+                                            </div>
+                                            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                                                <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Scope Change</div>
+                                                <div className="text-2xl font-bold text-slate-800 dark:text-white">0 <span className="text-xs font-normal text-slate-400">issues</span></div>
+                                                <div className="text-xs text-slate-400 mt-1">Added after start</div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
-                            </div>
 
-                            {/* Burndown Chart */}
-                            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col">
-                                <h3 className="font-bold mb-6 flex items-center gap-2 dark:text-white"><Activity size={18}/> Sprint Burndown</h3>
-                                <div className="h-80 w-full flex-1">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <LineChart data={burndownData}>
-                                            <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.2} />
-                                            <XAxis dataKey="day" tick={{fontSize: 12}} stroke="#94a3b8" />
-                                            <YAxis tick={{fontSize: 12}} stroke="#94a3b8" />
-                                            <Tooltip content={<CustomTooltip />} />
-                                            <Legend />
-                                            <Line type="monotone" dataKey="Ideal" stroke="#94a3b8" strokeDasharray="5 5" dot={false} strokeWidth={2} />
-                                            <Line type="monotone" dataKey="Actual" stroke="#ef4444" strokeWidth={3} activeDot={{ r: 6 }} />
-                                        </LineChart>
-                                    </ResponsiveContainer>
+                                {/* 2. Burndown Chart */}
+                                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
+                                    <h3 className="font-bold text-lg dark:text-white mb-6 flex items-center gap-2">
+                                        <Activity size={20} className="text-indigo-600"/> Burndown Chart
+                                    </h3>
+                                    
+                                    {(!selectedSprint?.startDate || !selectedSprint?.endDate) ? (
+                                        <div className="h-64 flex flex-col items-center justify-center text-slate-400 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800 border-dashed">
+                                            <AlertCircle size={32} className="mb-2 opacity-50"/>
+                                            <p className="text-sm font-medium">Missing sprint dates.</p>
+                                        </div>
+                                    ) : (
+                                        <div className="h-80 w-full">
+                                            <ResponsiveContainer width="100%" height="100%">
+                                                <LineChart data={burndownData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                                                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.1} />
+                                                    <XAxis dataKey="date" tick={{fontSize: 12}} stroke="#94a3b8" />
+                                                    <YAxis tick={{fontSize: 12}} stroke="#94a3b8" />
+                                                    <Tooltip content={<CustomTooltip />} />
+                                                    <Legend />
+                                                    <Line type="monotone" dataKey="Ideal" stroke="#94a3b8" strokeDasharray="5 5" dot={false} strokeWidth={2} />
+                                                    <Line type="monotone" dataKey="Actual" stroke="#6366f1" strokeWidth={3} activeDot={{ r: 6 }} />
+                                                </LineChart>
+                                            </ResponsiveContainer>
+                                        </div>
+                                    )}
                                 </div>
-                            </div>
-                        </div>
 
-                        {/* Detailed Sprint Table */}
-                        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm">
-                            <div className="p-6 border-b border-slate-200 dark:border-slate-800">
-                                <h3 className="font-bold text-lg dark:text-white">Sprint Details</h3>
-                            </div>
-                            <table className="w-full text-left">
-                                <thead className="bg-slate-50 dark:bg-slate-950 text-xs font-bold text-slate-500 uppercase">
-                                    <tr>
-                                        <th className="px-6 py-4">Sprint Name</th>
-                                        <th className="px-6 py-4">Status</th>
-                                        <th className="px-6 py-4">Dates</th>
-                                        <th className="px-6 py-4 text-right">Points Completed</th>
-                                        <th className="px-6 py-4 text-right">Goal</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                    {projectSprints.length === 0 ? (
-                                        <tr><td colSpan={5} className="px-6 py-8 text-center text-slate-500">No sprints found.</td></tr>
-                                    ) : projectSprints.map(sprint => {
-                                        const points = velocityData.find(v => v.name === sprint.name)?.completed || 0;
-                                        return (
-                                            <tr key={sprint.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors">
-                                                <td className="px-6 py-4 font-bold text-slate-800 dark:text-white">{sprint.name}</td>
-                                                <td className="px-6 py-4">
-                                                    {sprint.isActive 
-                                                        ? <span className="px-2 py-1 bg-indigo-100 text-indigo-600 rounded text-xs font-bold">Active</span>
-                                                        : sprint.isCompleted 
-                                                            ? <span className="px-2 py-1 bg-green-100 text-green-600 rounded text-xs font-bold">Completed</span>
-                                                            : <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded text-xs font-bold">Future</span>
-                                                    }
-                                                </td>
-                                                <td className="px-6 py-4 text-sm text-slate-500">{formatDate(sprint.startDate)} - {formatDate(sprint.endDate)}</td>
-                                                <td className="px-6 py-4 text-right font-mono font-bold">{points}</td>
-                                                <td className="px-6 py-4 text-right text-sm text-slate-500 italic truncate max-w-[200px]">{sprint.goal || '-'}</td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                )}
+                                {/* 3. Velocity Chart */}
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                    <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
+                                        <h3 className="font-bold text-lg dark:text-white mb-6 flex items-center gap-2">
+                                            <TrendingUp size={20} className="text-green-600"/> Team Velocity
+                                        </h3>
+                                        <div className="h-64 w-full">
+                                            {velocityData.length === 0 ? (
+                                                <div className="h-full flex items-center justify-center text-slate-400 text-sm">No completed sprints yet.</div>
+                                            ) : (
+                                                <ResponsiveContainer width="100%" height="100%">
+                                                    <RechartsBar data={velocityData} barSize={30}>
+                                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" opacity={0.1} />
+                                                        <XAxis dataKey="name" tick={{fontSize: 12}} stroke="#94a3b8" />
+                                                        <YAxis tick={{fontSize: 12}} stroke="#94a3b8" />
+                                                        <Tooltip cursor={{fill: 'transparent'}} content={<CustomTooltip />} />
+                                                        <Legend />
+                                                        <Bar dataKey="Committed" fill="#e2e8f0" radius={[4, 4, 0, 0]} />
+                                                        <Bar dataKey="Completed" fill="#10b981" radius={[4, 4, 0, 0]} />
+                                                    </RechartsBar>
+                                                </ResponsiveContainer>
+                                            )}
+                                        </div>
+                                    </div>
 
-                {/* TEAM TAB */}
-                {activeTab === 'team' && (
-                    <div className="space-y-6 animate-in fade-in duration-300">
-                        {/* Stacked Workload Chart */}
-                        <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                            <h3 className="font-bold mb-6 flex items-center gap-2 dark:text-white"><Users size={18}/> Workload Distribution</h3>
-                            <div className="h-80 w-full">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <RechartsBar data={workloadData} layout="vertical" barSize={30}>
-                                        <CartesianGrid strokeDasharray="3 3" horizontal={true} stroke="#334155" opacity={0.2} />
-                                        <XAxis type="number" stroke="#94a3b8" />
-                                        <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 12}} stroke="#94a3b8" />
-                                        <Tooltip cursor={{fill: 'transparent'}} content={<CustomTooltip />} />
-                                        <Legend />
-                                        <Bar dataKey="Todo" stackId="a" fill="#94a3b8" />
-                                        <Bar dataKey="InProgress" stackId="a" fill="#6366f1" />
-                                        <Bar dataKey="Done" stackId="a" fill="#10b981" radius={[0, 4, 4, 0]} />
-                                    </RechartsBar>
-                                </ResponsiveContainer>
-                            </div>
-                        </div>
-
-                        {/* Team List */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {Object.values(users).map(u => {
-                                const stats = workloadData.find(w => w.name === u.name.split(' ')[0]) || { Todo: 0, InProgress: 0, Done: 0 };
-                                return (
-                                    <div key={u.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 flex items-center gap-4">
-                                        <Avatar user={u} size={16} />
-                                        <div className="flex-1">
-                                            <h4 className="font-bold text-slate-800 dark:text-white">{u.name}</h4>
-                                            <p className="text-xs text-slate-500 mb-3">{u.email}</p>
-                                            <div className="flex gap-2 text-xs">
-                                                <span className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-slate-600 dark:text-slate-400"><b>{stats.Todo}</b> To Do</span>
-                                                <span className="px-2 py-1 bg-indigo-50 dark:bg-indigo-900/20 rounded text-indigo-600"><b>{stats.InProgress}</b> Active</span>
-                                                <span className="px-2 py-1 bg-green-50 dark:bg-green-900/20 rounded text-green-600"><b>{stats.Done}</b> Done</span>
+                                    {/* Velocity Stats */}
+                                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm flex flex-col justify-center">
+                                        <div className="text-center mb-6">
+                                            <div className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-2">Average Velocity</div>
+                                            <div className="text-4xl font-black text-slate-800 dark:text-white">{avgVelocity}</div>
+                                            <div className="text-xs text-slate-400 mt-1">points / sprint</div>
+                                        </div>
+                                        <div className="space-y-4">
+                                            <div className="flex justify-between items-center text-sm p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
+                                                <span className="text-slate-500">Last Sprint</span>
+                                                <span className="font-bold dark:text-white">{velocityData[velocityData.length - 1]?.Completed || 0} pts</span>
+                                            </div>
+                                            <div className="flex justify-between items-center text-sm p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
+                                                <span className="text-slate-500">Best Sprint</span>
+                                                <span className="font-bold text-green-600">{Math.max(...velocityData.map(d => d.Completed), 0)} pts</span>
                                             </div>
                                         </div>
                                     </div>
-                                );
-                            })}
-                        </div>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                )}
+
+                {/* TEAM TAB (Placeholder) */}
+                {activeTab === 'team' && (
+                    <div className="text-center py-20 animate-in fade-in duration-300">
+                        <Users size={48} className="mx-auto text-slate-300 mb-4" />
+                        <h3 className="text-lg font-bold text-slate-700 dark:text-slate-300">Team Insights</h3>
+                        <p className="text-slate-500 mb-6">Workload distribution and member performance metrics.</p>
+                        <button onClick={() => setActiveTab('sprints')} className="text-indigo-600 font-bold hover:underline">Go to Sprint Analysis</button>
                     </div>
                 )}
             </div>

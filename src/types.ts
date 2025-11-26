@@ -102,15 +102,16 @@ export interface Project {
   };
 }
 
+export type SprintStatus = 'draft' | 'active' | 'completed';
+
 export interface Sprint {
   id: string;
   projectId: string;
   name: string;
-  startDate: string;
-  endDate: string;
+  startDate: string | null;
+  endDate: string | null;
   goal: string;
-  isActive: boolean;
-  isCompleted: boolean;
+  status: SprintStatus;
 }
 
 export interface Release {

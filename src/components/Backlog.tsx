@@ -6,20 +6,83 @@ import { AppState, Issue, Sprint, IssueType, Priority } from '../types';
 import { Plus, ChevronDown, MoreHorizontal, Calendar, X } from './Icons';
 import { formatDate } from '../utils';
 
+// --- Start Sprint Modal ---
+const StartSprintModal = ({ sprint, onClose }: { sprint: Sprint; onClose: () => void }) => {
+    const dispatch = useDispatch();
+    const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+    // Default 2 weeks duration
+    const [endDate, setEndDate] = useState(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+    const [goal, setGoal] = useState(sprint.goal || '');
+
+    const handleStart = () => {
+        dispatch(startSprint({
+            sprintId: sprint.id,
+            startDate: new Date(startDate).toISOString(),
+            endDate: new Date(endDate).toISOString(),
+            goal
+        }));
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+            <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-2xl shadow-2xl p-6 border border-slate-100 dark:border-slate-700">
+                <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-xl font-bold dark:text-white">Start Sprint: {sprint.name}</h3>
+                    <button onClick={onClose} className="text-slate-400 hover:text-slate-600 dark:hover:text-white">
+                        <X size={20} />
+                    </button>
+                </div>
+                
+                <div className="space-y-4">
+                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                        Issues will be included in this sprint.
+                    </p>
+                    <div className="grid grid-cols-2 gap-4">
+                         <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Start Date</label>
+                            <input type="date" className="w-full bg-white border border-slate-300 dark:border-slate-600 rounded-lg p-2.5 dark:bg-slate-700 dark:text-white outline-none" value={startDate} onChange={e => setStartDate(e.target.value)} />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">End Date</label>
+                            <input type="date" className="w-full bg-white border border-slate-300 dark:border-slate-600 rounded-lg p-2.5 dark:bg-slate-700 dark:text-white outline-none" value={endDate} onChange={e => setEndDate(e.target.value)} />
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Sprint Goal</label>
+                        <textarea 
+                            className="w-full bg-white border border-slate-300 dark:border-slate-600 rounded-lg p-2.5 dark:bg-slate-700 dark:text-white outline-none" 
+                            rows={3} 
+                            placeholder="What do we want to achieve in this sprint?"
+                            value={goal} 
+                            onChange={e => setGoal(e.target.value)} 
+                        />
+                    </div>
+                </div>
+
+                <div className="flex justify-end gap-3 mt-8">
+                    <button onClick={onClose} className="px-4 py-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg text-sm font-bold">Cancel</button>
+                    <button onClick={handleStart} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700 shadow-md">Start Sprint</button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 // --- Edit Sprint Modal ---
 const EditSprintModal = ({ sprint, onClose }: { sprint: Sprint; onClose: () => void }) => {
     const dispatch = useDispatch();
     const [name, setName] = useState(sprint.name);
-    const [startDate, setStartDate] = useState(sprint.startDate.split('T')[0]);
-    const [endDate, setEndDate] = useState(sprint.endDate.split('T')[0]);
+    const [startDate, setStartDate] = useState(sprint.startDate ? sprint.startDate.split('T')[0] : '');
+    const [endDate, setEndDate] = useState(sprint.endDate ? sprint.endDate.split('T')[0] : '');
     const [goal, setGoal] = useState(sprint.goal || '');
 
     const handleSave = () => {
         dispatch(editSprint({
             sprintId: sprint.id,
             name,
-            startDate: new Date(startDate).toISOString(),
-            endDate: new Date(endDate).toISOString(),
+            startDate: startDate ? new Date(startDate).toISOString() : null,
+            endDate: endDate ? new Date(endDate).toISOString() : null,
             goal
         }));
         onClose();
@@ -114,16 +177,6 @@ const IssueRow: React.FC<IssueRowProps> = ({ issue, index, totalIssues, onDragSt
         onDrop(e, issue);
     };
 
-    const handleMoveToTop = () => {
-        dispatch(reorderIssue({ issueId: issue.id, isSprintUpdate: true, targetIssueId: null, newSprintId: issue.sprintId }));
-        // Hacky way to move to top: Logic in store puts it at end if target is null, so we need store logic update or simply:
-        // Actually, the store logic `targetIssueId` handles insertion BEFORE. So if we pass the first issue ID of the list, it goes to top. 
-        // But here we don't have easy access to the first issue ID without passing list prop.
-        // Simplified: Delete and recreate/move is hard.
-        // Let's just rely on Drag and Drop for precise ordering, and use basic actions here.
-        setIsMenuOpen(false);
-    };
-
     const handleDelete = () => {
         if(window.confirm('Are you sure you want to delete this issue?')) {
             dispatch(deleteIssue(issue.id));
@@ -196,8 +249,6 @@ interface SprintSectionProps {
     onDropSprint: (e: React.DragEvent, sprintId: string) => void; 
     onDropIssue: (e: React.DragEvent, targetIssue: Issue, sprintId: string) => void;
     onDragStart: (e: React.DragEvent, id: string) => void;
-    onStart: (id: string) => void;
-    onComplete: (id: string) => void;
 }
 
 const SprintSection: React.FC<SprintSectionProps> = ({ 
@@ -205,18 +256,24 @@ const SprintSection: React.FC<SprintSectionProps> = ({
     issues, 
     onDropSprint, 
     onDropIssue,
-    onDragStart, 
-    onStart, 
-    onComplete 
+    onDragStart
 }) => {
     const dispatch = useDispatch();
     const [isExpanded, setIsExpanded] = useState(true);
     const [isDragOver, setIsDragOver] = useState(false);
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [isStartModalOpen, setIsStartModalOpen] = useState(false);
+    
+    // Inline edit state
+    const [isEditingName, setIsEditingName] = useState(false);
+    const [tempName, setTempName] = useState(sprint.name);
+    
     const menuRef = useRef<HTMLDivElement>(null);
+    const nameInputRef = useRef<HTMLInputElement>(null);
 
-    const isFuture = !sprint.isActive && !sprint.isCompleted;
+    const isFuture = sprint.status !== 'active' && sprint.status !== 'completed';
+    const isActive = sprint.status === 'active';
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -227,6 +284,12 @@ const SprintSection: React.FC<SprintSectionProps> = ({
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
+
+    useEffect(() => {
+        if (isEditingName && nameInputRef.current) {
+            nameInputRef.current.focus();
+        }
+    }, [isEditingName]);
 
     const handleDragOver = (e: React.DragEvent) => {
         e.preventDefault();
@@ -248,6 +311,19 @@ const SprintSection: React.FC<SprintSectionProps> = ({
         }
     }
 
+    const handleNameSave = () => {
+        setIsEditingName(false);
+        if (tempName.trim() !== sprint.name) {
+             dispatch(editSprint({
+                sprintId: sprint.id,
+                name: tempName,
+                startDate: sprint.startDate,
+                endDate: sprint.endDate,
+                goal: sprint.goal
+            }));
+        }
+    }
+
     return (
         <div 
             onDragOver={handleDragOver}
@@ -260,17 +336,38 @@ const SprintSection: React.FC<SprintSectionProps> = ({
             `}
         >
             <div className="p-4 flex items-center justify-between bg-slate-100/50 dark:bg-slate-800/50">
-                <div className="flex items-center gap-3 cursor-pointer select-none" onClick={() => setIsExpanded(!isExpanded)}>
-                    <div className={`transition-transform duration-200 ${isExpanded ? 'rotate-0' : '-rotate-90'}`}>
+                <div className="flex items-center gap-3 select-none">
+                    <div className={`cursor-pointer transition-transform duration-200 ${isExpanded ? 'rotate-0' : '-rotate-90'}`} onClick={() => setIsExpanded(!isExpanded)}>
                         <ChevronDown size={18} className="text-slate-500" />
                     </div>
                     <div>
-                        <h3 className="font-bold text-slate-800 dark:text-white text-sm flex items-center gap-2">
-                            {sprint.name} 
-                            {sprint.isActive && <span className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">Active</span>}
-                        </h3>
+                        <div className="flex items-center gap-2">
+                             {isEditingName ? (
+                                <input 
+                                    ref={nameInputRef}
+                                    value={tempName}
+                                    onChange={(e) => setTempName(e.target.value)}
+                                    onBlur={handleNameSave}
+                                    onKeyDown={(e) => e.key === 'Enter' && handleNameSave()}
+                                    className="font-bold text-sm bg-white dark:bg-slate-700 border border-indigo-500 rounded px-2 py-0.5 outline-none"
+                                />
+                             ) : (
+                                <h3 
+                                    className="font-bold text-slate-800 dark:text-white text-sm flex items-center gap-2 cursor-pointer hover:text-indigo-600"
+                                    onClick={() => { setTempName(sprint.name); setIsEditingName(true); }}
+                                    title="Click to edit name"
+                                >
+                                    {sprint.name} 
+                                </h3>
+                             )}
+                            {isActive && <span className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-bold">Active</span>}
+                        </div>
                         <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
-                            <span>{formatDate(sprint.startDate)} - {formatDate(sprint.endDate)}</span>
+                            {sprint.startDate && sprint.endDate ? (
+                                <span>{formatDate(sprint.startDate)} - {formatDate(sprint.endDate)}</span>
+                            ) : (
+                                <span>No dates set</span>
+                            )}
                             <span>•</span>
                             <span>{issues.length} issues</span>
                             {sprint.goal && <span className="hidden sm:inline">• {sprint.goal}</span>}
@@ -278,16 +375,17 @@ const SprintSection: React.FC<SprintSectionProps> = ({
                     </div>
                 </div>
                 <div className="flex items-center gap-3">
-                    {sprint.isActive ? (
-                         <button onClick={() => onComplete(sprint.id)} className="bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-200 text-xs font-bold px-4 py-2 rounded-lg hover:bg-indigo-200 transition-colors">
-                            Complete Sprint
-                         </button>
-                    ) : isFuture ? (
-                        <button onClick={() => onStart(sprint.id)} className="bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold px-4 py-2 rounded-lg hover:bg-slate-300 transition-colors">
+                    {isActive ? (
+                         <div className="px-3 py-1.5 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-xs font-bold rounded-lg flex items-center gap-1">
+                            Running
+                         </div>
+                    ) : (
+                        <button 
+                            onClick={() => setIsStartModalOpen(true)} 
+                            className="bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold px-4 py-2 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors"
+                        >
                             Start Sprint
                         </button>
-                    ) : (
-                        <span className="text-xs font-bold text-green-600 bg-green-100 dark:bg-green-900/30 px-2 py-1 rounded">Completed</span>
                     )}
                     
                     <div ref={menuRef} className="relative">
@@ -340,6 +438,7 @@ const SprintSection: React.FC<SprintSectionProps> = ({
             )}
 
             {isEditModalOpen && <EditSprintModal sprint={sprint} onClose={() => setIsEditModalOpen(false)} />}
+            {isStartModalOpen && <StartSprintModal sprint={sprint} onClose={() => setIsStartModalOpen(false)} />}
         </div>
     );
 };
@@ -352,9 +451,9 @@ export const BacklogView = () => {
     // Filter issues by project
     const projectIssues = (Object.values(issues) as Issue[]).filter(i => i.projectId === currentProjectId);
     
-    // Sprints
+    // Sprints - Exclude completed
     const projectSprints = (Object.values(sprints) as Sprint[])
-        .filter(s => s.projectId === currentProjectId && !s.isCompleted);
+        .filter(s => s.projectId === currentProjectId && s.status !== 'completed');
     
     // Sort issues by order
     projectIssues.sort((a, b) => a.order - b.order);
@@ -467,8 +566,6 @@ export const BacklogView = () => {
                                 onDragStart={handleDragStart}
                                 onDropSprint={handleDropSprint}
                                 onDropIssue={handleDropSprintIssue}
-                                onStart={(id) => dispatch(startSprint({ sprintId: id, goal: 'Execute!' }))}
-                                onComplete={(id) => dispatch(completeSprint(id))}
                             />
                         ))}
                     </div>

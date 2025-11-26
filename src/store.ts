@@ -1,3 +1,4 @@
+
 import { configureStore, createSlice, PayloadAction } from '@reduxjs/toolkit';
 import { AppState, Issue, User, Priority, IssueType, Sprint, Project, Release, AutomationRule, TimeLog, Notification, Repository, Branch, PullRequest, OrgSettings, AuditLog } from './types';
 import { getInitialState, saveState, generateId } from './utils';
@@ -157,6 +158,9 @@ const appSlice = createSlice({
 
         siblings.sort((a, b) => a.order - b.order);
         
+        // Remove from old position if in same list (handled by filtering implicitly) but we need to re-insert.
+        // Actually the filtering excludes self, so we just insert.
+        
         if (targetIssueId) {
             const targetIndex = siblings.findIndex(i => i.id === targetIssueId);
             if (targetIndex !== -1) siblings.splice(targetIndex, 0, issue);
@@ -277,23 +281,24 @@ const appSlice = createSlice({
     createSprint: (state) => {
         const newId = generateId('SPRINT');
         const projectId = state.currentProjectId || 'p1';
-        const count = (Object.values(state.sprints) as Sprint[]).filter(s => s.projectId === projectId).length + 1;
+        const projectSprints = (Object.values(state.sprints) as Sprint[]).filter(s => s.projectId === projectId);
+        // Better naming: Sprint 1, Sprint 2 based on count
+        const count = projectSprints.length + 1;
         
         const newSprint: Sprint = {
             id: newId,
             projectId,
             name: `Sprint ${count}`,
-            startDate: new Date().toISOString(),
-            endDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+            startDate: null,
+            endDate: null,
             goal: '',
-            isActive: false,
-            isCompleted: false
+            status: 'draft'
         };
         
         state.sprints[newId] = newSprint;
         saveState(state);
     },
-    editSprint: (state, action: PayloadAction<{ sprintId: string; name: string; startDate: string; endDate: string; goal: string }>) => {
+    editSprint: (state, action: PayloadAction<{ sprintId: string; name: string; startDate: string | null; endDate: string | null; goal: string }>) => {
         const sprint = state.sprints[action.payload.sprintId];
         if (sprint) {
             sprint.name = action.payload.name;
@@ -314,27 +319,49 @@ const appSlice = createSlice({
         delete state.sprints[sprintId];
         saveState(state);
     },
-    startSprint: (state, action: PayloadAction<{ sprintId: string; goal: string }>) => {
+    startSprint: (state, action: PayloadAction<{ sprintId: string; goal: string; startDate: string; endDate: string }>) => {
         const sprint = state.sprints[action.payload.sprintId];
         if (sprint) {
-            sprint.isActive = true;
-            sprint.goal = action.payload.goal;
-            saveState(state);
-        }
-    },
-    completeSprint: (state, action: PayloadAction<string>) => {
-        const sprint = state.sprints[action.payload];
-        if (sprint) {
-            sprint.isActive = false;
-            sprint.isCompleted = true;
-            
-            // Move incomplete issues to backlog
-            Object.values(state.issues).forEach((issue: Issue) => {
-                if (issue.sprintId === sprint.id && issue.statusId !== 'c4') { 
-                    issue.sprintId = undefined;
+            // Deactivate any other active sprints for this project (safeguard)
+            Object.values(state.sprints).forEach((s: Sprint) => {
+                if (s.projectId === sprint.projectId && s.status === 'active') {
+                    s.status = 'completed'; // or 'draft'? 'completed' seems safer to avoid multiple active
                 }
             });
 
+            sprint.status = 'active';
+            sprint.goal = action.payload.goal;
+            sprint.startDate = action.payload.startDate;
+            sprint.endDate = action.payload.endDate;
+            saveState(state);
+        }
+    },
+    completeSprint: (state, action: PayloadAction<{ sprintId: string, moveOpenIssuesToBacklog: boolean }>) => {
+        const { sprintId, moveOpenIssuesToBacklog } = action.payload;
+        const sprint = state.sprints[sprintId];
+        if (sprint) {
+            sprint.status = 'completed';
+            
+            if (moveOpenIssuesToBacklog) {
+                 // Move incomplete issues to backlog
+                 // We consider 'Done' usually as the last column. Since we don't have hardcoded 'Done' status ID, 
+                 // we rely on board configuration or a specific done status.
+                 // For this specific implementation, we assume 'c4' or similar is done, or we just rely on the user knowing what is done.
+                 // In a real app we'd track "done" columns.
+                 // Based on existing store, 'c4' was referenced as a done status in previous context, but let's be dynamic.
+                 // We will check against the LAST column of the board associated with the project.
+                 
+                 const board = Object.values(state.boards).find(b => b.projectId === sprint.projectId);
+                 const doneColumnId = board?.columns[board.columns.length - 1]?.id;
+
+                 if (doneColumnId) {
+                    Object.values(state.issues).forEach((issue: Issue) => {
+                        if (issue.sprintId === sprint.id && issue.statusId !== doneColumnId) { 
+                            issue.sprintId = undefined; // Move to backlog
+                        }
+                    });
+                 }
+            }
             saveState(state);
         }
     },
@@ -714,3 +741,17 @@ export const store = configureStore({
 
 export type RootState = ReturnType<typeof store.getState>;
 export type AppDispatch = typeof store.dispatch;
+
+// Selectors
+export const selectSprintsByProjectId = (state: RootState, projectId: string) => {
+    return (Object.values(state.app.sprints) as Sprint[]).filter(s => s.projectId === projectId);
+}
+export const selectActiveSprintByProjectId = (state: RootState, projectId: string) => {
+    return (Object.values(state.app.sprints) as Sprint[]).find(s => s.projectId === projectId && s.status === 'active');
+}
+export const selectFutureSprintsByProjectId = (state: RootState, projectId: string) => {
+    return (Object.values(state.app.sprints) as Sprint[]).filter(s => s.projectId === projectId && s.status !== 'completed' && s.status !== 'active');
+}
+export const selectIssuesForSprint = (state: RootState, sprintId: string) => {
+    return (Object.values(state.app.issues) as Issue[]).filter(i => i.sprintId === sprintId);
+}

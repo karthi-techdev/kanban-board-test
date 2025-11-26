@@ -1,6 +1,7 @@
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { RootState, reorderIssue, createIssue, addComment, addNotification, completeSprint, updateColumn, updateIssue, createBoard, deleteBoard, createColumn, deleteColumn } from '../store';
+import { RootState, reorderIssue, createIssue, addComment, addNotification, completeSprint, updateColumn, updateIssue, createBoard, deleteBoard, createColumn, deleteColumn, selectActiveSprintByProjectId } from '../store';
 import { Issue, Priority, IssueType, User, AppState, Board, Sprint, Column } from '../types';
 import { Plus, MoreHorizontal, X, MessageSquare, Calendar, CheckSquare, Users, Search, Rocket } from './Icons';
 import { formatDate } from '../utils';
@@ -340,6 +341,51 @@ const CreateColumnModal = ({ onClose, boardId }: { onClose: () => void; boardId:
     );
 };
 
+// --- Sprint Header ---
+const SprintHeader = ({ sprint, issues, onComplete }: { sprint: Sprint; issues: Issue[]; onComplete: () => void }) => {
+    // Assuming the last column is 'Done'. Ideally check board config.
+    // We'll treat statusId 'c4' as done for demo, or simply filter based on a heuristic or specific ID if known.
+    // For now, let's just count. In a real app, 'done' definition varies.
+    // Let's assume issues in the last column of the board are done. But here we don't have board easily.
+    // We will just show total. Or if we pass board...
+    // Let's just show total count.
+    
+    return (
+        <div className="px-8 py-3 bg-indigo-50/50 dark:bg-indigo-900/10 border-b border-indigo-100 dark:border-indigo-900/30 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+                <div>
+                    <div className="flex items-center gap-2">
+                         <h2 className="text-lg font-bold text-indigo-900 dark:text-indigo-100">{sprint.name}</h2>
+                         <span className="px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 text-[10px] font-bold uppercase tracking-wide">Active Sprint</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-indigo-600/70 dark:text-indigo-300/70 mt-0.5 font-medium">
+                        <Calendar size={12} />
+                        <span>{sprint.startDate ? formatDate(sprint.startDate) : 'Start'} - {sprint.endDate ? formatDate(sprint.endDate) : 'End'}</span>
+                        {sprint.goal && (
+                            <>
+                                <span>•</span>
+                                <span>{sprint.goal}</span>
+                            </>
+                        )}
+                    </div>
+                </div>
+            </div>
+            <div className="flex items-center gap-6">
+                <div className="flex flex-col items-end">
+                     <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Issues</span>
+                     <span className="text-lg font-bold text-slate-700 dark:text-slate-200">{issues.length}</span>
+                </div>
+                <button 
+                    onClick={onComplete}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2 rounded-lg shadow-md shadow-indigo-500/20 transition-transform active:scale-95 flex items-center gap-2"
+                >
+                    Complete Sprint
+                </button>
+            </div>
+        </div>
+    );
+};
+
 // --- Drag & Drop Board ---
 
 export const BoardView = () => {
@@ -350,6 +396,9 @@ export const BoardView = () => {
     // Board Selection Logic
     const projectBoards = (Object.values(boards) as Board[]).filter(b => b.projectId === currentProjectId);
     const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
+
+    // Active Sprint
+    const activeSprint = useSelector((state: RootState) => selectActiveSprintByProjectId(state, currentProjectId || ''));
 
     // Initial load selection
     useEffect(() => {
@@ -362,7 +411,6 @@ export const BoardView = () => {
     }, [projectBoards, activeBoardId, boards]);
 
     const activeBoard = activeBoardId ? boards[activeBoardId] : null;
-    const activeSprint = (Object.values(sprints) as Sprint[]).find(s => s.projectId === currentProjectId && s.isActive);
     
     const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -370,6 +418,9 @@ export const BoardView = () => {
     const [isCreateBoardModalOpen, setIsCreateBoardModalOpen] = useState(false);
     const [isCreateColumnModalOpen, setIsCreateColumnModalOpen] = useState(false);
     
+    // Complete Sprint Modal State
+    const [moveOpenToBacklog, setMoveOpenToBacklog] = useState(true);
+
     const [newIssueTitle, setNewIssueTitle] = useState('');
     const [newIssueType, setNewIssueType] = useState<IssueType>(IssueType.TASK);
     const [newIssuePriority, setNewIssuePriority] = useState<Priority>(Priority.MEDIUM);
@@ -407,7 +458,9 @@ export const BoardView = () => {
     const projectIssues = (Object.values(issues) as Issue[]).filter(i => {
         const matchProject = i.projectId === currentProjectId;
         const matchSearch = i.title.toLowerCase().includes(searchQuery.toLowerCase());
+        // If active sprint exists, only show issues in that sprint
         const matchSprint = activeSprint ? i.sprintId === activeSprint.id : true;
+        
         // Check if any of the assignees are in the selected list (if filter active)
         const matchMember = selectedMemberIds.length > 0 ? i.assigneeIds.some(id => selectedMemberIds.includes(id)) : true;
         return matchProject && matchSearch && matchSprint && matchMember;
@@ -497,7 +550,7 @@ export const BoardView = () => {
 
     const handleCompleteSprint = () => {
         if (activeSprint) {
-            dispatch(completeSprint(activeSprint.id));
+            dispatch(completeSprint({ sprintId: activeSprint.id, moveOpenIssuesToBacklog: moveOpenToBacklog }));
             dispatch(addNotification({
                 title: 'Sprint Completed',
                 message: `${activeSprint.name} has been completed successfully.`,
@@ -542,6 +595,12 @@ export const BoardView = () => {
     const allUsers = Object.values(users) as User[];
     const visibleUsers = allUsers.slice(0, 5);
     const hiddenUsers = allUsers.slice(5);
+
+    // Calculate completed/open issues for active sprint
+    // We assume the last column is "Done"
+    const doneColumnId = activeBoard.columns[activeBoard.columns.length - 1]?.id;
+    const completedCount = activeSprint ? projectIssues.filter(i => i.sprintId === activeSprint.id && i.statusId === doneColumnId).length : 0;
+    const openCount = activeSprint ? projectIssues.filter(i => i.sprintId === activeSprint.id && i.statusId !== doneColumnId).length : 0;
 
     return (
         <div className="h-full flex flex-col overflow-hidden bg-slate-50/50 dark:bg-black">
@@ -589,16 +648,7 @@ export const BoardView = () => {
                             </div>
                         )}
 
-                        {activeSprint ? (
-                            <div className="flex items-center gap-2 mt-1">
-                                <span className="px-2 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 text-xs font-bold uppercase tracking-wide">
-                                    {activeSprint.name}
-                                </span>
-                                <span className="text-xs text-slate-500">
-                                    {formatDate(activeSprint.startDate)} - {formatDate(activeSprint.endDate)}
-                                </span>
-                            </div>
-                        ) : (
+                        {!activeSprint && (
                             <div className="text-xs text-slate-400 mt-1 italic">Kanban Mode (No active sprint)</div>
                         )}
                     </div>
@@ -700,17 +750,17 @@ export const BoardView = () => {
                             onChange={(e) => setSearchQuery(e.target.value)}
                         />
                     </div>
-                    
-                    {activeSprint && (
-                        <button 
-                            onClick={() => setIsCompleteSprintModalOpen(true)}
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-4 py-2 rounded-lg shadow-lg shadow-indigo-500/20 transition-transform active:scale-95"
-                        >
-                            Complete Sprint
-                        </button>
-                    )}
                 </div>
             </div>
+
+            {/* Sprint Header (if active) */}
+            {activeSprint && (
+                <SprintHeader 
+                    sprint={activeSprint} 
+                    issues={projectIssues.filter(i => i.sprintId === activeSprint.id)} 
+                    onComplete={() => setIsCompleteSprintModalOpen(true)}
+                />
+            )}
 
             {/* Columns */}
             <div className="flex-1 overflow-x-auto overflow-y-hidden p-8">
@@ -938,17 +988,40 @@ export const BoardView = () => {
                         <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-4 mb-6 border border-slate-100 dark:border-slate-800">
                             <div className="flex justify-between mb-2 text-sm">
                                 <span className="text-slate-500">Completed Issues</span>
-                                <span className="font-bold text-green-600">{projectIssues.filter(i => i.statusId === 'c4').length}</span>
+                                <span className="font-bold text-green-600">{completedCount}</span>
                             </div>
                             <div className="flex justify-between text-sm">
                                 <span className="text-slate-500">Open Issues</span>
-                                <span className="font-bold text-slate-800 dark:text-white">{projectIssues.filter(i => i.statusId !== 'c4').length}</span>
+                                <span className="font-bold text-slate-800 dark:text-white">{openCount}</span>
                             </div>
                         </div>
                         
-                        <p className="text-xs text-center text-slate-400 mb-6">
-                            Any open issues will be returned to the backlog.
-                        </p>
+                        {openCount > 0 && (
+                            <div className="mb-6">
+                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Move open issues to</label>
+                                <div className="space-y-2">
+                                    <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 dark:border-slate-700 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800">
+                                        <input 
+                                            type="radio" 
+                                            name="moveIssues" 
+                                            checked={moveOpenToBacklog} 
+                                            onChange={() => setMoveOpenToBacklog(true)}
+                                            className="text-indigo-600 focus:ring-indigo-500"
+                                        />
+                                        <span className="text-sm font-medium dark:text-slate-300">Backlog</span>
+                                    </label>
+                                    <label className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 dark:border-slate-700 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 opacity-50 cursor-not-allowed" title="Not available yet">
+                                         <input 
+                                            type="radio" 
+                                            name="moveIssues" 
+                                            disabled
+                                            className="text-indigo-600 focus:ring-indigo-500"
+                                        />
+                                        <span className="text-sm font-medium dark:text-slate-300">New Sprint (Coming soon)</span>
+                                    </label>
+                                </div>
+                            </div>
+                        )}
 
                         <div className="flex gap-3">
                             <button 
