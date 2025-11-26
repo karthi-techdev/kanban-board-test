@@ -37,7 +37,7 @@
 
 @font-face {
   font-family: 'Decog';
-  src: url('./decog.otf') format('otf');
+  src: url('./decog.otf') format('opentype');
   font-weight: 500;
   font-display: swap;
   font-style: normal;
